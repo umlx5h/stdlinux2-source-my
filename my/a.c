@@ -1,21 +1,9 @@
 #include <stdio.h>
 
 int main(int argc, char *argv) {
-    // printf("Hello world!\n");
-    // fputs("Hello world!\n", stdout);
+    char *str1 = "Hello\n";
+    char str2[7] = {72, 101, 108, 108, 111, 10, 0};
 
-    // puts("Hello world!");
-
-    // char buf[1024];
-
-    // fgets(buf, sizeof buf, stdin);
-
-    // printf("%s", buf);
-    // puts(buf);
-
-    int n;
-
-    scanf("%d", &n);
-
-    printf("%d\n", n);
+    puts(str1);
+    puts(str2);
 }
