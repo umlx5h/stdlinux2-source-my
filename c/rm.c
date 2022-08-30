@@ -12,13 +12,11 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    for (i = 1; i < argc; i++) {
-        if (rmdir(argv[i]) < 0) {
-            perror(argv[i]);
+    for (i = 1; i < argc; i++){
+        if (unlink(argv[i]) < 0) {
+            perror(argv[1]);
             exit(1);
         }
     }
-
-
     exit(0);
 }
