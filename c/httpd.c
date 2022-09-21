@@ -113,11 +113,77 @@ static void read_request_line(struct HTTPRequest *req, FILE *in) {
 }
 
 static struct HTTPHeaderField *read_header_field(FILE *in) {
+    struct HTTPHeaderField *h;
+    char buf[LINE_BUF_SIZE];
+    char *p;
 
+    // ヘッダを1行読み込む
+    if (!fgets(buf, LINE_BUF_SIZE, in)) {
+        // TODO: 追加した、終端まで読み込んでいたら成功扱いとしたい
+        // if (feof(in)) return NULL;
+        log_exit("failed to read request header field: %s", 
+            strerror(errno));
+    }
+    // 改行文字だった場合は最後まで読んだ or ヘッダが何もなかった
+    if ((buf[0] == '\n') || (strcmp(buf, "\r\n") == 0)) {
+        return NULL;
+    }
+
+    /* ヘッダ名を読み込む Connection部分 */
+    // Connection: close
+    p = strchr(buf, ':');
+    if (!p) log_exit("parse error on request header field: %s", buf);
+    *p++ = '\0';
+    h = xmalloc(sizeof(struct HTTPHeaderField));
+    h->name = xmalloc(p - buf);
+    strcpy(h->name, buf);
+
+    /* ヘッダ値を読み込む ' close'部分の'close' */
+    // Connection: close
+
+    // 先頭の空白orタブ文字が連続している文字列長をstrspnは返すのでその分ポインタを進める 
+    size_t space_length = strspn(p, " \t");
+    p += space_length;
+
+    
+    // 改行文字をコピーしないように少し修正している
+    char *value = p;
+    p = strchr(value, '\n');
+    if (!p) {
+        p = strstr(value, "\r\n");
+    }
+    *p = '\0';
+    h->value = xmalloc(strlen(value) + 1);
+    // resolved: 改行文字もコピーしてしまっているが？
+    // strcpy(h->value, p);
+    strcpy(h->value, value);
+
+    return h;
+}
+
+static char *lookup_header_field_value(struct HTTPRequest *req, char *field_name) {
+    struct HTTPHeaderField *h;
+    for (h = req->header; h; h = h->next) {
+        // ヘッダーは大文字小文字を無視して比較する
+        if (strcasecmp(h->name, field_name) == 0) {
+            return h->value;
+        }
+    }
+
+    return NULL;
 }
 
 static long content_length(struct HTTPRequest *req) {
-    return 0;
+    char *val;
+    long len;
+
+    val = lookup_header_field_value(req, "Content-Length");
+    if (!val) return 0;
+
+    len = atol(val);
+    if (len < 0) log_exit("negative Content-Length value");
+
+    return len;
 }
 
 static struct HTTPRequest *read_request(FILE *in) {
@@ -126,7 +192,12 @@ static struct HTTPRequest *read_request(FILE *in) {
 
     req = xmalloc(sizeof(struct HTTPRequest));
     // GET /path/to/file HTTP/1.1 の部分を解析
+
+    // リクエストラインを読む
     read_request_line(req, in);
+    
+    // 連結リストは後ろのヘッダから格納される
+    // A1\nA2\nA3\n -> A3 -> A2 -> A1 -> NULL
     req->header = NULL;
     while ((h = read_header_field(in))) {
         h->next = req->header;
@@ -134,12 +205,12 @@ static struct HTTPRequest *read_request(FILE *in) {
     }
     // リクエストのエンティティボディを読む、GETの場合は存在しないので読まない
     req->length = content_length(req);
-    if (req->length != 0) {
+    if (req->length > 0) {
         if (req->length > MAX_REQUEST_BODY_LENGTH)
             log_exit("request body too long");
         req->body = xmalloc(req->length);
         if (fread(req->body, req->length, 1, in) < 1)
-            log_exit("failed to read request body");
+            log_exit("failed to read request body: %s", strerror(errno));
     } else {
         req->body = NULL;
     }
@@ -180,14 +251,28 @@ static void service(FILE *in, FILE *out, char *docroot) {
 }
 
 int main(int argc, char *argv[]) {
-    struct HTTPRequest req;
-    // read_request_line(&req, stdin);
-
+    struct HTTPRequest *req;
     FILE *file;
-    file = fopen("test.txt", "r");
-    read_request_line(&req, file);
+    file = fopen("testdata/get_withbody.txt", "r");
+    req = read_request(file);
 
-    printf("method: %s, path: %s, minor_version: %d", req.method, req.path, req.protocol_minor_version);
+    printf("read request line. method: %s, path: %s, minor_version: %d\n", req->method, req->path, req->protocol_minor_version);
+
+    struct HTTPHeaderField *h;
+    printf("read reader.\n");
+    for (h = req->header; h; h = h->next) {
+        printf("%s=%s\n", h->name, h->value);
+    }
+    printf("read reader end.\n");
+
+    printf("content-length: %ld\n", req->length);
+
+    if (req->length > 0) {
+        printf("request body: %s\n", req->body);
+
+    }
+
+
     exit(0);
 
     if (argc != 2) {

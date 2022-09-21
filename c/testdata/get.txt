@@ -1,0 +1,5 @@
+GET /path/to/file HTTP/1.1
+Connection: close
+Accept: */*
+Host: example.com
+
