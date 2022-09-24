@@ -1,4 +1,4 @@
-// chapter 16
+// chapter 17
 
 #define _GNU_SOURCE
 
@@ -29,7 +29,12 @@
 #define SERVER_VERSION "1.0"
 
 #define USAGE "Usage: %s [--port=n] [--chroot --user=u --group=g] <docroot>\n"
-#define MAX_BACKLOG 5
+#define MAX_BACKLOG 2
+
+static void stop(const char *message) {
+    printf("# %s\n", message);
+    getchar();
+}
 
 static void log_exit(const char *fmt, ...) {
     va_list ap;
@@ -406,7 +411,7 @@ static void do_file_response(struct HTTPRequest *req, FILE *out, char *docroot) 
             // 呼んだ分だけソケットに対して書き込み
             if (fwrite(buf, 1, n, out) < n)
                 log_exit("failed to write to socket: %s", strerror(errno));
-        } 
+        }
         close(fd);
     }
 
@@ -476,20 +481,31 @@ static int listen_socket(char *port) {
         log_exit(gai_strerror(err));
     }
 
+    char *err_msg = NULL;
+
     for (ai = res; ai; ai = ai->ai_next) {
         int sock; 
 
         // 1. socket(2) で ソケットを作成
         sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (sock < 0) continue;
+        // TIME_WAITのソケットが残っていると、bind(2)で「Address already in use」で失敗してしまうので、失敗しないようにSO_REUSEADDRの設定を入れる
+        int optval = 1;
+        if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1)
+            log_exit("faild to set sockopt");
 
         // 2. bind(2) で 特定ポートにソケットをバインドする
         if (bind(sock, ai->ai_addr, ai->ai_addrlen) < 0) {
             close(sock);
+            err_msg = strerror(errno);
             continue;
         }
 
-        // 3. listen(2) で ソケットをパッシブソケットとして設定する (接続要求を受けつけれるようにする)
+        // 3. listen(2) で ソケットをパッシブソケットとして設定する (接続要求を受けつけれるようにする
+        // クライアント側を逆にactive socketという
+
+        // backlogはここで指定した数だけaccept(2)を呼ぶ前にconnect(2)をしたときにESTABLISHになるソケットの数(カーネルが管理するキューサイズ)を指定する
+        // このサイズ以上にconnect(2)を実行するとブロックする (SYN-SENT状態になる)
         if (listen(sock, MAX_BACKLOG) < 0) {
             close(sock);
             continue;
@@ -500,7 +516,7 @@ static int listen_socket(char *port) {
     }
 
     // not reached here
-    log_exit("failed to listen socket");
+    log_exit("failed to listen socket: %s", err_msg);
 
     return -1; 
 }
@@ -516,13 +532,20 @@ static void server_main(int server_fd, char *docroot) {
         // TODO: 事前にforkしておいてそれぞれのプロセスでacceptを呼び出せばプリフォークモデルとなる
         // これは並行モデル (concurrency model)
         // accpetしたらすぐにforkして子プロセスがクライアントと通信する
+        // stop("before accpet(2)");
         sock = accept(server_fd, (struct sockaddr*)&addr, &addrlen);
         if (sock < 0) log_exit("accept(2) failed: %s", strerror(errno));
         // リクエスト解析&レスポンスを返す処理は子プロセスに任せる
         pid = fork();
         if (pid < 0) exit(3);
         if (pid == 0) { // 子プロセス
+            // 子プロセスではlistening socketは使ってないのでクローズ
+            close(server_fd);
+
             // 読み込み書き込み両方とも同じソケットを使う (accept(2)でもらったソケット)
+            // forkすることで子プロセスにファイルディスクリプタがコピーされる
+            // カーネルが管理している情報を指すポインタをコピーしているとイメージすればOK
+            // 実体をコピーしているわけではない、あくまでも同じ情報を指している
             FILE *inf = fdopen(sock, "r");
             FILE *outf = fdopen(sock, "w");
 
