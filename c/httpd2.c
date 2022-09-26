@@ -19,6 +19,8 @@
 #include <syslog.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <grp.h>
+#include <pwd.h>
 
 #define MAX_REQUEST_BODY_LENGTH 4096
 #define LINE_BUF_SIZE 255
@@ -31,6 +33,8 @@
 #define USAGE "Usage: %s [--port=n] [--chroot --user=u --group=g] <docroot>\n"
 #define MAX_BACKLOG 2
 
+static int debug_mode = 0;
+
 static void stop(const char *message) {
     printf("# %s\n", message);
     getchar();
@@ -40,8 +44,12 @@ static void log_exit(const char *fmt, ...) {
     va_list ap;
 
     va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
-    fputc('\n', stderr);
+    if (debug_mode) {
+        vfprintf(stderr, fmt, ap);
+        fputc('\n', stderr);
+    } else {
+        vsyslog(LOG_ERR, fmt, ap);
+    }
     va_end(ap);
     exit(1);
 }
@@ -461,11 +469,48 @@ void debug() {
 }
 
 static void setup_environment(char *docroot, char *user, char *group) {
+    struct passwd *pw;
+    struct group *gr;
 
+    if (!user || !group) {
+        fprintf(stderr, "use both of --user and --gruop\n");
+    }
+    gr = getgrnam(group);
+    if (!gr) {
+        fprintf(stderr, "no such group: %s\n", group);
+    }
+    if (setgid(gr->gr_gid) < 0) {
+        perror("setgid(2)");
+        exit(1);
+    }
+    if (initgroups(user, gr->gr_gid) < 0) {
+        perror("initgroups(2)");
+    }
+    pw = getpwnam(user);
+    if (!pw) {
+        fprintf(stderr, "no such user: %s\n", user);
+        exit(1);
+    }
+    chroot(docroot);
+    if (setuid(pw->pw_uid) < 0) {
+        perror("setuid(2)");
+        exit(1);
+    }
 }
 
 static void become_daemon() {
+    int n;
 
+    if (chdir("/") < 0) {
+        log_exit("chdir(2) failed: %s", strerror(errno));
+    }
+    freopen("/dev/null", "r", stdin);
+    freopen("/dev/null", "w", stdout);
+    freopen("/dev/null", "w", stderr);
+    n = fork();
+    if (n < 0) log_exit("fork(2) failed: %s", strerror(errno));
+    if (n != 0) _exit(0); // 親プロセスは終了
+    if (setsid() < 0) log_exit("setsid(2) failed: %s", strerror(errno));
 }
 
 // socket, bind, listenを実行してソケットを返す
@@ -532,7 +577,7 @@ static void server_main(int server_fd, char *docroot) {
         // TODO: 事前にforkしておいてそれぞれのプロセスでacceptを呼び出せばプリフォークモデルとなる
         // これは並行モデル (concurrency model)
         // accpetしたらすぐにforkして子プロセスがクライアントと通信する
-        // stop("before accpet(2)");
+        stop("before accpet(2)");
         sock = accept(server_fd, (struct sockaddr*)&addr, &addrlen);
         if (sock < 0) log_exit("accept(2) failed: %s", strerror(errno));
         // リクエスト解析&レスポンスを返す処理は子プロセスに任せる
@@ -559,7 +604,6 @@ static void server_main(int server_fd, char *docroot) {
     }
 }
 
-static int debug_mode = 0;
 static struct option longopts[] = {
     {"debug", no_argument, &debug_mode, 1},
     {"chroot", no_argument, NULL, 'c'},
@@ -609,6 +653,7 @@ int main(int argc, char *argv[]) {
     } 
     docroot = argv[optind];
 
+    // chroot(2)を使ってdocrootをルートとする
     if (do_chroot) {
         setup_environment(docroot, user, group);
         docroot = "";

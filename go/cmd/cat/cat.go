@@ -26,20 +26,22 @@ func doCat(path string) {
 		die(path, err)
 	}
 
-	buf := make([]byte, 0, 256)
+	// buf := make([]byte, 0, 256)
+	buf := make([]byte, 256)
 
 LOOP:
 	for {
-		n, err := syscall.Read(fd, buf[:cap(buf)])
+		// n, err := syscall.Read(fd, buf[:cap(buf)])
+		n, err := syscall.Read(fd, buf)
 		switch {
 		case n < 0:
 			die(path, err)
 		case n == 0:
 			break LOOP
-		default:
-			buf = buf[:n]
+			// default:
+			// 	buf = buf[:n]
 		}
-		n, err = syscall.Write(int(os.Stdout.Fd()), buf)
+		n, err = syscall.Write(int(os.Stdout.Fd()), buf[:n])
 		if n < 0 || err != nil {
 			die(path, err)
 		}
