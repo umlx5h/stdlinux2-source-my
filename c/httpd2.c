@@ -31,7 +31,7 @@
 #define SERVER_VERSION "1.0"
 
 #define USAGE "Usage: %s [--port=n] [--chroot --user=u --group=g] <docroot>\n"
-#define MAX_BACKLOG 2
+#define MAX_BACKLOG 1
 
 static int debug_mode = 0;
 
@@ -549,8 +549,8 @@ static int listen_socket(char *port) {
         // 3. listen(2) で ソケットをパッシブソケットとして設定する (接続要求を受けつけれるようにする
         // クライアント側を逆にactive socketという
 
-        // backlogはここで指定した数だけaccept(2)を呼ぶ前にconnect(2)をしたときにESTABLISHになるソケットの数(カーネルが管理するキューサイズ)を指定する
-        // このサイズ以上にconnect(2)を実行するとブロックする (SYN-SENT状態になる)
+        // backlogはここで指定した数だけaccept(2)を呼ぶ前にconnect(2)をしたときにサーバー側がESTABLISH OR SYN_RECVになるソケットの数(カーネルが管理するキューサイズ)を指定する
+        // このサイズ以上にconnect(2)を実行するとブロックする (クライアント側がSYN_SENT状態になる)
         if (listen(sock, MAX_BACKLOG) < 0) {
             close(sock);
             continue;
@@ -560,7 +560,7 @@ static int listen_socket(char *port) {
         return sock;
     }
 
-    // not reached here
+    // not reached here  
     log_exit("failed to listen socket: %s", err_msg);
 
     return -1; 

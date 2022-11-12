@@ -27,8 +27,9 @@ static void log_exit(const char *fmt, ...) {
 }
 
 int main(int argc, char *argv[]) {
-    const char *port = argv[1];
-    const char *file_name = argv[2];
+    const char *host = argv[1];
+    const char *port = argv[2];
+    const char *file_name = argv[3];
 
     int sock;
     sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -41,7 +42,7 @@ int main(int argc, char *argv[]) {
     hints.ai_socktype = SOCK_STREAM; // TCP
 
     int addrinfo_err;
-    if ((addrinfo_err = getaddrinfo("localhost", port, &hints, &result)) != 0) {
+    if ((addrinfo_err = getaddrinfo(host, port, &hints, &result)) != 0) {
         log_exit("getaddrinfo(3): %s", gai_strerror(addrinfo_err));
     }
     
@@ -54,7 +55,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // printf("connect(2) success!\n");
+    printf("connect(2) success!\n");
 
     // stop("before request");
     // FILE *http_reader = fdopen(sock, "r");
